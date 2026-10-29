@@ -8,6 +8,7 @@ import tempfile
 import urllib.request
 import urllib.error
 from .sandbox import Tools
+from .prompts import limit, request_body
 
 ROOT = Path(__file__).resolve().parent.parent
 DEMOS = ('bug1_offbyone', 'bug2_condition', 'bug3_injection_bait')
@@ -25,25 +26,39 @@ def chat(model, messages, structured=False):
     base = os.environ.get('TOKEN_FACTORY_BASE_URL', '').rstrip('/')
     if not key or not base.startswith('https://') or not model:
         raise ModelAPIError('Missing API configuration: set TOKEN_FACTORY_API_KEY, HTTPS TOKEN_FACTORY_BASE_URL, and both model IDs before starting the server.')
-    body = {'model': model, 'messages': messages, 'temperature': 0.2, 'max_tokens': 2500}
-    if structured:
-        body['response_format'] = {'type': 'json_object'}
-    req = urllib.request.Request(base + '/chat/completions', data=json.dumps(body).encode(),
-        headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json',
-                 'User-Agent': 'SafeFix/1.0', 'Accept': 'application/json'})
-    try:
-        with urllib.request.urlopen(req, timeout=60) as response:
-            data = json.load(response)
-    except urllib.error.HTTPError as e:
-        reasons = {400: 'The provider rejected the request. Check model compatibility, JSON response support and generation parameters.',
-                   401: 'The provider rejected the API key. Check the key loaded in the server terminal.',
-                   403: 'The provider denied access. Check account permissions and provider firewall restrictions.',
-                   404: 'Endpoint or model not found. Check the API base URL and model ID.',
-                   429: 'Provider rate limit or quota reached. Wait or check your account usage.'}
-        raise ModelAPIError(f'Provider HTTP {e.code}: ' + reasons.get(e.code, 'Provider request failed. Check provider status and configuration.')) from None
-    except (urllib.error.URLError, TimeoutError):
-        raise ModelAPIError('Could not reach the model provider or the request timed out. Check connectivity and retry.') from None
-    return data['choices'][0]['message']['content']
+    budget=limit('SAFEFIX_INPUT_BYTES',8000,2000,12000)
+    output_tokens=limit('SAFEFIX_OUTPUT_TOKENS',1500,512,2500)
+    for attempt in range(2):
+        req = urllib.request.Request(base + '/chat/completions',
+            data=request_body(model,messages,structured,budget,output_tokens),
+            headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json',
+                     'User-Agent': 'SafeFix/1.0', 'Accept': 'application/json'})
+        try:
+            with urllib.request.urlopen(req, timeout=60) as response:
+                data = json.load(response)
+        except urllib.error.HTTPError as e:
+            if e.code==413 and attempt==0:
+                budget=max(1000,budget//2)
+                output_tokens=max(512,output_tokens//2)
+                continue
+            reasons = {400: 'The provider rejected the request. Check model compatibility, JSON response support and generation parameters.',
+                       401: 'The provider rejected the API key. Check the key loaded in the server terminal.',
+                       403: 'The provider denied access. Check account permissions and provider firewall restrictions.',
+                       404: 'Endpoint or model not found. Check the API base URL and model ID.',
+                       413: 'Provider request/token allowance exceeded even after reducing context. Set SAFEFIX_INPUT_BYTES=3000 and SAFEFIX_OUTPUT_TOKENS=512, or select a model with a higher allowance.',
+                       429: 'Provider rate limit or quota reached. Wait or check your account usage.'}
+            raise ModelAPIError(f'Provider HTTP {e.code}: ' + reasons.get(e.code, 'Provider request failed. Check provider status and configuration.')) from None
+        except (urllib.error.URLError, TimeoutError):
+            raise ModelAPIError('Could not reach the model provider or the request timed out. Check connectivity and retry.') from None
+        try:
+            choice=data['choices'][0]
+            if choice.get('finish_reason')=='length':
+                raise ModelAPIError('Model output reached its token limit. Use smaller edit_file replacements or increase SAFEFIX_OUTPUT_TOKENS within your provider allowance.')
+            if not isinstance(choice['message']['content'],str):raise ValueError()
+            return choice['message']['content']
+        except (KeyError,IndexError,TypeError,ValueError):
+            raise ModelAPIError('Provider returned no usable text response. Check model compatibility.') from None
+
 
 def repair(demo, mode='offline'):
     if demo not in DEMOS or mode not in ('offline', 'live'):

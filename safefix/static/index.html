@@ -29,7 +29,7 @@ function handle(e){events.push(e);switch(e.kind){
 case 'accepted':log('MISSION',e.message);if(e.issue)log('CONTEXT',e.issue);break;
 case 'progress':step(e.stage,'active');log('EXECUTION',e.message);break;
 case 'issue':$('issueTitle').textContent=e.issue.title;$('issueMeta').textContent=e.issue.owner+'/'+e.issue.repo+' · Issue #'+e.issue.number;$('issueBody').textContent=e.issue.body;log('ISSUE',e.message);break;
-case 'checkout':$('issueMeta').textContent+=' · revision '+e.commit;$('patchState').textContent=e.repository;log('CHECKOUT',e.message);break;
+case 'checkout':$('issueMeta').textContent+=' · revision '+e.commit+(e.runner?' · '+e.runner:'');$('patchState').textContent=e.repository;log('CHECKOUT',e.message);break;
 case 'regression':log('REGRESSION',e.message+'\n'+e.path+'\n'+e.content);break;
 case 'patch':showPatch(e.diff);$('patchState').textContent='Proposed · not verified';break;
 case 'tests_before':step(0,'done');step(e.workflow==='issue'?2:1,'active');$('testMetric').textContent=e.errors?'ERROR → …':e.code===1?'FAIL → …':e.code===0?'PASS → …':'ERROR → …';log('BASELINE',(e.executed!==undefined?'Executed: '+e.executed+' tests; collection/setup errors: '+e.errors+'\n':'')+e.output,e.code!==0);break;

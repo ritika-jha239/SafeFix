@@ -19,3 +19,20 @@ def test_isolated_runner_red_to_green(tmp_path):
     tools.write_file('maths.py','def total(n):\n    return sum(range(n + 1))\n')
     after=tools.run_tests()
     assert after['code']==0 and after['executed']==1 and not after['errors'], after
+
+@pytest.mark.skipif(os.getenv('SAFEFIX_SCIENTIFIC_TESTS')!='1',reason='Set SAFEFIX_SCIENTIFIC_TESTS=1 with prepared SymPy image')
+def test_scientific_runner_executes_edited_source(tmp_path):
+    # Runner-integrity check, not an issue fix: prove edited Python overrides the wheel.
+    tmp_path.chmod(0o755)
+    package=tmp_path/'sympy';package.mkdir()
+    (package/'release.py').write_text("__version__ = '1.14.0+before'\n")
+    (tmp_path/'test_overlay.py').write_text("from sympy.release import __version__\n\ndef test_actual_checkout_version():\n    assert __version__ == '1.14.0+edited'\n")
+    subprocess.run(['git','init',str(tmp_path)],check=True,capture_output=True)
+    subprocess.run(['git','-C',str(tmp_path),'add','.'],check=True)
+    tools=RepoTools(tmp_path);tools.image='safefix-sympy:local'
+    tools.select_tests(['test_overlay.py'])
+    before=tools.run_tests()
+    assert before['code']==1 and before['failures']==1 and not before['errors'],before
+    tools.edit_file('sympy/release.py','1.14.0+before','1.14.0+edited')
+    after=tools.run_tests()
+    assert after['code']==0 and after['executed']==1 and not after['errors'],after

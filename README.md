@@ -66,8 +66,8 @@ URLs, shell commands saved in history, Docker images or GitHub files.
 
 The issue page reader currently supports public GitHub HTML pages; private issues,
 rate limits, page-format changes, huge repositories and non-Python projects may
-fail explicitly. File context is limited to 40KB per source file and an initial
-ranked subset; the model can read other tracked files through its tools. The
+fail explicitly. Initial context is limited to 4.8KB with ranked source excerpts; tracked Python
+files up to 1MB support line-range reads and targeted edits; the model can read other tracked files through its tools. The
 workflow uses the latest default-branch revision, so an old report may already be
 fixed. Read contribution policies before submitting AI-generated work upstream.
 
@@ -137,3 +137,19 @@ claim of live provider validation. The Docker integration executes actual pytest
 
 NemoClaw, Nebius deployment, authentication, durable job storage and public-service
 quotas remain future work. GitHub issue-mode publication also remains unimplemented.
+
+
+## pandas, scikit-learn and SymPy with a small API allowance
+
+See [the real-issue testing guide](docs/REAL_ISSUES.md) for exact runner build
+commands, the five zero-model-call regression checks and live Groq settings.
+Scientific runners build native artifacts from the exact source revision and
+pin jobs to that revision. This is required for pandas/scikit-learn; simply
+installing a released wheel in the generic runner does not test edited source.
+
+Model requests now have a hard size budget, bounded history and one smaller
+retry on HTTP 413. Source tools support `search_file`, line-range `read_file` and
+small exact `edit_file` replacements in large files. Optional server settings:
+`SAFEFIX_INPUT_BYTES` (default 8000, range 2000–12000) and
+`SAFEFIX_OUTPUT_TOKENS` (default 1500, range 512–2500). Provider-specific token
+accounting, quotas and repair quality still apply.

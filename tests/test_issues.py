@@ -52,7 +52,7 @@ def configure_flow(repository,monkeypatch, baseline):
         return 'abc123'
     monkeypatch.setattr(issues,'git',clone)
     def model(model,messages,structured=False):
-        if 'test_paths' in messages[-1]['content']:
+        if 'Return JSON {"plan"' in messages[-1]['content']:
             return json.dumps({'plan':'Fix inclusive sum in maths.py','test_paths':['test_maths.py']})
         return json.dumps({'actions':[{'tool':'write_file','path':'maths.py','content':'def total(n):\n    return sum(range(n + 1))\n'}]})
     monkeypatch.setattr(issues,'chat',model)

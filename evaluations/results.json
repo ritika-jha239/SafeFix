@@ -1,0 +1,51 @@
+{
+  "validated_date": "2026-10-30",
+  "scope": "Baseline reproduction only; no live AI repair or upstream publication was performed.",
+  "results": [
+    {
+      "issue": "https://github.com/pandas-dev/pandas/issues/71755",
+      "commit": "0988929a21cdcc933b380871a622138eb18cc207",
+      "model_calls": 0,
+      "code": 1,
+      "executed": 3,
+      "errors": 0,
+      "failures": 3
+    },
+    {
+      "issue": "https://github.com/scikit-learn/scikit-learn/issues/35143",
+      "commit": "d685424bec8f8585d8017c1aab1db7535d3fa03d",
+      "model_calls": 0,
+      "code": 1,
+      "executed": 2,
+      "errors": 0,
+      "failures": 2
+    },
+    {
+      "issue": "https://github.com/scikit-learn/scikit-learn/issues/35195",
+      "commit": "d685424bec8f8585d8017c1aab1db7535d3fa03d",
+      "model_calls": 0,
+      "code": 1,
+      "executed": 1,
+      "errors": 0,
+      "failures": 1
+    },
+    {
+      "issue": "https://github.com/sympy/sympy/issues/30874",
+      "commit": "16fa855354eb7bcabd3fe10993841e03b1382692",
+      "model_calls": 0,
+      "code": 1,
+      "executed": 1,
+      "errors": 0,
+      "failures": 1
+    },
+    {
+      "issue": "https://github.com/sympy/sympy/issues/30849",
+      "commit": "16fa855354eb7bcabd3fe10993841e03b1382692",
+      "model_calls": 0,
+      "code": 1,
+      "executed": 1,
+      "errors": 0,
+      "failures": 1
+    }
+  ]
+}
