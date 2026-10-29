@@ -1,118 +1,139 @@
 # SafeFix
 
-A Python-only repair lab: select one of three buggy repos, watch pytest fail,
-inspect the repair plan and patch, and watch pytest pass. A small local web UI
-streams test output and shows blocked actions and a unified diff.
+A Python issue-repair workbench. An issue URL selects the **actual public GitHub
+repository**, not a bundled demo. The dashboard streams the fetched issue,
+checkout commit, model analysis, test selection, generated regression, edits,
+pytest results and the real unified diff. Empty issue URL selects demo mode.
 
-## Start
-
-Python 3.12 recommended. From this checkout:
+## Run on Ubuntu
 
 ```sh
-python -m venv /workspace/safefix-venv
-/workspace/safefix-venv/bin/python -m pip install -r requirements.txt
-/workspace/safefix-venv/bin/python -m pytest -q
-/workspace/safefix-venv/bin/python -m safefix.app
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python -m pytest -q
+python -m safefix.app
 ```
 
-The UI listens on loopback port 8501. `/health` returns `ok`.
-Dependencies live outside the checkout. Each repair runs in a temporary copy;
-the original demos and tests remain unchanged. Tests may edit only solution.py.
-Offline demo mode uses deterministic prepared patches; it does **not** call an AI.
-The injection-bait demo includes an explicitly scripted blocked command probe,
-not a claim that a model followed the malicious comment.
+Open the local server at port 8501; leave the terminal running. Ctrl+C stops it.
+Offline demos need no API key and use explicitly labeled prepared patches.
 
-## Live Nemotron mode
+## Configure live API access
 
-Set these in environment settings, never in committed files:
+Set these in the same terminal **before** starting the server:
 
-- `TOKEN_FACTORY_API_KEY`: provider API key (enter securely).
-- `TOKEN_FACTORY_BASE_URL`: HTTPS OpenAI-compatible API base including `/v1`
-  if the provider requires it.
-- `NEMOTRON_ULTRA_MODEL`: exact planner model ID from your provider catalog.
-- `NEMOTRON_NANO_MODEL`: exact repair model ID from your provider catalog.
+- `TOKEN_FACTORY_API_KEY`: enter securely; never commit it.
+- `TOKEN_FACTORY_BASE_URL`: HTTPS OpenAI-compatible base URL, including `/v1`.
+- `NEMOTRON_ULTRA_MODEL`: exact planner model ID from your provider.
+- `NEMOTRON_NANO_MODEL`: exact repair model ID. Both roles can use one model.
 
-The planner is called once; the repair model returns JSON tool actions for up to
-five iterations. The endpoint must support chat completions and JSON object
-responses. Model IDs and provider compatibility have not been verified here:
-no provider credentials were available. Test both models with a minimal prompt
-before choosing Live mode. Add the provider hostname to environment networking
-if needed. Do not enter an API key into the UI or chat.
+Groq's base is `https://api.groq.com/openai/v1`; OpenAI's is
+`https://api.openai.com/v1`. Provider compatibility requires chat completions and
+JSON-object responses. Model calls include application headers; HTTP diagnostics
+omit provider bodies and credentials. A configured key does not prove quota or
+model access. No provider credentials were available for live validation here.
 
-## Architecture
+For Zsh, enter the key interactively (run this line alone, then paste and Enter):
 
-```mermaid
-flowchart LR
- UI[Local web UI] --> Job[Temporary demo copy]
- Job --> Red[Initial pytest failure]
- Red --> Plan[Ultra plan / offline plan]
- Plan --> Loop[Nano actions / prepared patch]
- Loop --> Guard[Path and tool guards]
- Guard --> Test[pytest with timeout]
- Test -->|failure, at most 5 attempts| Loop
- Test -->|pass| Diff[Diff and streamed results]
+```zsh
+read -rs 'TOKEN_FACTORY_API_KEY?Paste API key: '
 ```
 
-## Safety and limits
+Then `echo` and `export TOKEN_FACTORY_API_KEY`. Do not put keys in browser inputs,
+URLs, shell commands saved in history, Docker images or GitHub files.
 
-This is a trusted-demo prototype, **not a secure service for arbitrary code**.
-Path traversal and symlink escapes are rejected; writes are limited to
-`solution.py`; tests cannot be changed through agent tools. Only pytest is an
-allowed command. Child processes receive a minimal environment and a timeout.
-But Python code executed by pytest can access the host filesystem and network;
-these guardrails are not OS isolation. Do not upload or run untrusted repos.
-The web server binds loopback and is not a production deployment.
+## Real GitHub issue workflow
 
-NemoClaw integration, repo upload, automatic PR creation, legacy migration,
-OS isolation, and Nebius deployment are not implemented. No claims of those
-integrations are made. Add actual isolation, authentication, rate limits and
-resource controls before exposing jobs to other users. The Python-only scope
-is the intended 3–4 hour MVP; a complete production version needs more work.
+1. Enter a public `https://github.com/owner/repo/issues/123` URL. The demo picker
+   becomes disabled; Live API mode is selected.
+2. SafeFix reads the actual report from GitHub and clones the default branch into
+   a temporary checkout. The UI records its exact commit SHA.
+3. The planner gets the issue, a bounded Python path index and ranked source
+   excerpts. It selects existing test files and can generate a focused regression.
+   That regression is frozen before source changes.
+4. Baseline tests run inside Docker. A reproduced test failure is required before
+   repair. Setup/collection errors, skipped-only tests and passing baselines do
+   **not** count as reproduction.
+5. The repair model reads tracked Python files and edits source for up to five
+   iterations. Original tests, generated regression, setup scripts and configuration
+   cannot be edited through its tools. Proposed diffs stream as edits happen.
+6. The same selected tests rerun. A passing suite with at least the baseline
+   executed count is required for a verified selected-test result. This is not a
+   guarantee that the entire issue or full repository test suite is fixed.
+7. Review and approve the real diff; download the patch and execution report.
+   **Issue-mode automatic GitHub publishing is not implemented.** It cannot push
+   an issue patch to SafeFix's own origin by mistake.
+
+The issue page reader currently supports public GitHub HTML pages; private issues,
+rate limits, page-format changes, huge repositories and non-Python projects may
+fail explicitly. File context is limited to 40KB per source file and an initial
+ranked subset; the model can read other tracked files through its tools. The
+workflow uses the latest default-branch revision, so an old report may already be
+fixed. Read contribution policies before submitting AI-generated work upstream.
+
+## Prepare the isolated test runner
+
+Real repository tests never execute on the host. Install/start Docker and ensure
+`docker info` works as your normal user. Build the default runner once:
+
+```sh
+docker build -t safefix-runner:local runner
+```
+
+This image includes Python 3.12 and pytest only. Project-specific runtime/test
+libraries must be installed in a **derived runner image** before starting jobs.
+For example, use a Dockerfile outside the checkout:
+
+```dockerfile
+FROM safefix-runner:local
+RUN pip install "sympy==1.14.0"
+```
+
+Build that file as `safefix-sympy:local`, then set
+`SAFEFIX_RUNNER_IMAGE=safefix-sympy:local` before starting the app. Use dependencies
+appropriate to the target revision; complex pandas/scikit-learn builds need their
+own prepared environments. The app never automatically runs repository install
+scripts or Dockerfiles. Missing dependencies appear as actual collection/setup
+errors, not model repair failures or successful fixes.
+
+Jobs use a non-root container, disabled network, read-only source, dropped
+capabilities, no-new-privileges, memory/CPU/process limits and a 90-second test
+limit. No provider keys or host Git credentials are passed into the runner. Do
+not expose this local prototype as a hostile multi-tenant service; containers are
+not a complete security boundary. Git checkouts and model calls run server-side.
+
+In this managed cloud environment, build with its combined CA trust secret:
+`docker build --secret id=proxy_ca,src=/etc/ssl/certs/ca-certificates.crt -t safefix-runner:local runner`.
+TLS verification stays enabled. Docker images and dependencies are retained;
+running processes do not survive snapshots.
+
+## Demo publishing
+
+With an **empty issue URL**, choose one of three bundled demo repos. Tests run in
+local temporary copies. Offline mode applies prepared patches; Live uses models.
+The injection-bait demo's blocked command is an explicitly scripted guardrail
+probe, not evidence of a model following a malicious instruction.
+
+After tests pass, review the diff and click **I reviewed & approve this patch**.
+The final **Push to GitHub** button then enables. It confirms the server checkout's
+GitHub origin, verifies destination tests and pushes only the demo's solution.py
+to a new `safefix/...` branch. Main is unchanged. Authentication must be configured
+locally via your normal Git credential manager or SSH. Never put tokens in remote
+URLs. Verified demo run IDs are held in memory (last 50), and expire on restart.
 
 ## Validation
 
-`python -m pytest -q` runs the application tests in `tests/`. Those verify all
-three original demo suites fail, repaired copies pass, originals remain intact,
-and guardrails reject traversal, test edits, symlink writes and shell commands.
-The deliberately failing fixtures in `repos/` are excluded from the outer suite.
+```sh
+python -m pytest -q
+# Optional integration; requires the built image and working Docker daemon:
+SAFEFIX_DOCKER_TESTS=1 python -m pytest tests/test_issues_docker.py -q
+```
 
-## Judge dashboard
+The default suite checks real-issue routing, report parsing, actual source-path
+diffs, frozen regression tests, no demo fallback, non-reproduction outcomes,
+provider diagnostics, demo repairs and reviewed publication to a local bare Git
+remote. Real-issue model responses are simulated in unit tests; this is not a
+claim of live provider validation. The Docker integration executes actual pytest.
 
-The dashboard accepts an optional GitHub issue URL as a **context label**.
-It does not fetch that issue or repair its repository. Select one of the three
-bundled repos to execute a real local test-and-repair demo. Progress follows
-streamed backend events: reproduce failure, plan, edit the temporary copy,
-verify pytest, and generate the patch. After verification, Push verified fix can publish a new branch to the server
-checkout’s GitHub origin. It never changes main. Download the patch and JSON execution report after a completed
-run. The UI includes elapsed time, attempt count, test transition and blocked
-actions. Provider endpoints can be configured later using the live-mode settings.
-
-
-## Push a verified fix to GitHub
-
-1. Run a repair and wait for the tests to pass.
-2. Inspect the diff and click **I reviewed & approve this patch**. This marks
-   patch review done and enables **Push to GitHub** in the final timeline step.
-3. Click **Push to GitHub** and confirm the displayed destination.
-4. SafeFix fetches origin/main into a separate temporary checkout, confirms the
-   source still matches, applies only the retained solution.py, and reruns tests.
-5. On success it commits and pushes a new `safefix/...` branch, then displays a
-   GitHub comparison link where you can open a PR. Main is unchanged.
-
-The destination is this server checkout's `origin`, not the issue URL. For the
-bundled demos the file is `repos/<selected-demo>/solution.py`. No arbitrary issue
-repository is fetched or edited. Run IDs and retained patches are held in memory
-(last 50 runs); restart or expiry requires a new repair. Repeated pushes of the
-same successful run return the original branch.
-
-On your Ubuntu laptop, authenticate Git for write access before launching the
-app. Use your normal GitHub credential manager or SSH setup; `origin` must be a
-credential-free HTTPS GitHub URL or `git@github.com:owner/repo.git`. If GitHub CLI
-is installed, `gh auth login` followed by `gh auth setup-git` configures HTTPS
-Git authentication. Do not put tokens in remote URLs, browser fields or source.
-A read-only clone does not prove push permission. Push failures show a safe
-error, leave main unchanged and allow retry after fixing authentication.
-
-Patch approval is recorded server-side for the exact verified run. Publishing
-without approval is rejected. Every new repair requires a fresh review. The
-GitHub step is marked done only after the push succeeds.
+NemoClaw, Nebius deployment, authentication, durable job storage and public-service
+quotas remain future work. GitHub issue-mode publication also remains unimplemented.

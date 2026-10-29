@@ -6,6 +6,7 @@ from .agent import DEMOS, repair, ModelAPIError
 from pathlib import Path
 import re
 from .publish import publish, destination, approve
+from .issues import repair_issue, IssueError
 
 PAGE = (Path(__file__).parent / 'static' / 'index.html').read_text()
 
@@ -62,19 +63,22 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(data, dict) or not re.fullmatch(r'[a-f0-9]{32}', str(data.get('job_id', ''))):
                     raise ValueError('Invalid verified run ID')
                 return self.publish_job(data['job_id'], review=self.path == '/review')
-            if data.get('demo') not in DEMOS or data.get('mode') not in ('offline','live'):
+            if data.get('mode') not in ('offline','live') or (not data.get('issue') and data.get('demo') not in DEMOS):
                 raise ValueError('Invalid demo or mode')
             issue = validate_issue(data.get('issue', ''))
         except (ValueError, TypeError, AttributeError):
             self.send_error(400); return
         self.send_response(200); self.send_header('Content-Type','application/x-ndjson'); self.end_headers()
         try:
-            self.wfile.write((json.dumps({'kind':'accepted', 'issue':issue, 'demo':data['demo'], 'mode':data['mode'], 'message':'Issue link attached as context only; executing selected bundled demo. GitHub content is not fetched.'})+'\n').encode()); self.wfile.flush()
-            for event in repair(data['demo'], data['mode']):
+            if issue and data['mode'] != 'live':
+                raise IssueError('Real issue repairs require Live API mode. Clear the issue URL to use the offline demo.')
+            workflow = 'issue' if issue else 'demo'
+            self.wfile.write((json.dumps({'kind':'accepted', 'issue':issue, 'workflow':workflow, 'mode':data['mode'], 'message':'Processing actual GitHub issue and repository.' if issue else 'Running the explicitly selected bundled demo.'})+'\n').encode()); self.wfile.flush()
+            for event in (repair_issue(issue) if issue else repair(data['demo'], data['mode'])):
                 self.wfile.write((json.dumps(event)+'\n').encode()); self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError):
             pass
-        except ModelAPIError as e:
+        except (ModelAPIError, IssueError) as e:
             self.wfile.write((json.dumps({'kind':'error','message':str(e)})+'\n').encode())
         except Exception:
             self.wfile.write((json.dumps({'kind':'error','message':'Repair failed. Check API configuration and provider access; credentials are never logged.'})+'\n').encode())
