@@ -36,7 +36,8 @@ def request_body(model,messages,structured,budget,output_tokens):
     if structured:result['response_format']={'type':'json_object'}
     # Bound the actual serialized payload, including JSON escaping, too.
     raw=json.dumps(result,ensure_ascii=False).encode()
-    while len(raw)>14000 and budget>1000:
+    maximum=14000 if budget<=8000 else budget*2
+    while len(raw)>maximum and budget>1000:
         budget//=2
         result['messages']=bounded_messages(messages,budget)
         raw=json.dumps(result,ensure_ascii=False).encode()

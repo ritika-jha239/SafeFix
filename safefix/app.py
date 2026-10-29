@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 from .publish import publish, destination, approve
 from .issues import repair_issue, IssueError
+from .providers import public_settings
 
 PAGE = (Path(__file__).parent / 'static' / 'index.html').read_text()
 
@@ -33,6 +34,13 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if self.path == '/config':
+            try:payload=public_settings()
+            except ValueError as e:payload={'error':str(e)}
+            body=json.dumps(payload).encode()
+            self.send_response(200);self.send_header('Content-Type','application/json')
+            self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
+            return
         if self.path == '/destination':
             try:
                 body = json.dumps({'repository': destination()[1]}).encode()

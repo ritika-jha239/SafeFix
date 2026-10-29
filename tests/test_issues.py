@@ -42,6 +42,7 @@ def test_missing_docker_does_not_run_on_host(repository,monkeypatch):
 
 
 def configure_flow(repository,monkeypatch, baseline):
+    monkeypatch.setattr(issues,'resolve_runner',lambda repository:('test-runner:local',None))
     monkeypatch.setattr(issues,'fetch_issue',lambda url:dict(owner='example',repo='maths',number=42,title='Sum missing last integer',body='total(5) should be 15',url=url))
     def clone(root,*args):
         if args[0]=='clone':
@@ -52,7 +53,7 @@ def configure_flow(repository,monkeypatch, baseline):
         return 'abc123'
     monkeypatch.setattr(issues,'git',clone)
     def model(model,messages,structured=False):
-        if 'Return JSON {"plan"' in messages[-1]['content']:
+        if 'brief source-grounded analysis' in messages[-1]['content']:
             return json.dumps({'plan':'Fix inclusive sum in maths.py','test_paths':['test_maths.py']})
         return json.dumps({'actions':[{'tool':'write_file','path':'maths.py','content':'def total(n):\n    return sum(range(n + 1))\n'}]})
     monkeypatch.setattr(issues,'chat',model)

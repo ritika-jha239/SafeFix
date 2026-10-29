@@ -63,6 +63,7 @@ def test_large_source_supports_targeted_reads_and_replacements(tmp_path,monkeypa
 
 
 def test_compact_context_does_not_dump_repository(tmp_path,monkeypatch):
+    monkeypatch.setenv('SAFEFIX_PROVIDER','groq')
     paths=[]
     for n in range(80):
         path=f'test_component_{n}.py'

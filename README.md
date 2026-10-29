@@ -1,155 +1,125 @@
 # SafeFix
 
-A Python issue-repair workbench. An issue URL selects the **actual public GitHub
-repository**, not a bundled demo. The dashboard streams the fetched issue,
-checkout commit, model analysis, test selection, generated regression, edits,
-pytest results and the real unified diff. Empty issue URL selects demo mode.
+A Python issue-repair workbench designed for **Nebius Token Factory**. Give it a
+public GitHub issue URL: it reads the actual report and repository, prepares an
+isolated environment, discovers relevant source/tests, plans a repair, edits code
+and streams actual verification evidence. There is no repository allowlist.
 
-## Run on Ubuntu
+It can attempt Python source repairs; it does not guarantee a solution for every
+issue. Missing services, credentials, unsupported build/test tooling, already-fixed
+reports and failed tests remain explicit outcomes. No canned demo is substituted
+for an issue URL.
+
+## Start on Ubuntu
 
 ```sh
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python -m pytest -q
+```
+
+Configure the provider in your server terminal using the
+[Nebius setup guide](docs/NEBIUS.md). API keys stay server-side. Then either
+prepare a repository once:
+
+```sh
+python -m safefix.prepare_runner owner/repository
 python -m safefix.app
 ```
 
-Open the local server at port 8501; leave the terminal running. Ctrl+C stops it.
-Offline demos need no API key and use explicitly labeled prepared patches.
-
-## Configure live API access
-
-Set these in the same terminal **before** starting the server:
-
-- `TOKEN_FACTORY_API_KEY`: enter securely; never commit it.
-- `TOKEN_FACTORY_BASE_URL`: HTTPS OpenAI-compatible base URL, including `/v1`.
-- `NEMOTRON_ULTRA_MODEL`: exact planner model ID from your provider.
-- `NEMOTRON_NANO_MODEL`: exact repair model ID. Both roles can use one model.
-
-Groq's base is `https://api.groq.com/openai/v1`; OpenAI's is
-`https://api.openai.com/v1`. Provider compatibility requires chat completions and
-JSON-object responses. Model calls include application headers; HTTP diagnostics
-omit provider bodies and credentials. A configured key does not prove quota or
-model access. No provider credentials were available for live validation here.
-
-For Zsh, enter the key interactively (run this line alone, then paste and Enter):
-
-```zsh
-read -rs 'TOKEN_FACTORY_API_KEY?Paste API key: '
-```
-
-Then `echo` and `export TOKEN_FACTORY_API_KEY`. Do not put keys in browser inputs,
-URLs, shell commands saved in history, Docker images or GitHub files.
-
-## Real GitHub issue workflow
-
-1. Enter a public `https://github.com/owner/repo/issues/123` URL. The demo picker
-   becomes disabled; Live API mode is selected.
-2. SafeFix reads the actual report from GitHub and clones the default branch into
-   a temporary checkout. The UI records its exact commit SHA.
-3. The planner gets the issue, a bounded Python path index and ranked source
-   excerpts. It selects existing test files and can generate a focused regression.
-   That regression is frozen before source changes.
-4. Baseline tests run inside Docker. A reproduced test failure is required before
-   repair. Setup/collection errors, skipped-only tests and passing baselines do
-   **not** count as reproduction.
-5. The repair model reads tracked Python files and edits source for up to five
-   iterations. Original tests, generated regression, setup scripts and configuration
-   cannot be edited through its tools. Proposed diffs stream as edits happen.
-6. The same selected tests rerun. A passing suite with at least the baseline
-   executed count is required for a verified selected-test result. This is not a
-   guarantee that the entire issue or full repository test suite is fixed.
-7. Review and approve the real diff; download the patch and execution report.
-   **Issue-mode automatic GitHub publishing is not implemented.** It cannot push
-   an issue patch to SafeFix's own origin by mistake.
-
-The issue page reader currently supports public GitHub HTML pages; private issues,
-rate limits, page-format changes, huge repositories and non-Python projects may
-fail explicitly. Initial context is limited to 4.8KB with ranked source excerpts; tracked Python
-files up to 1MB support line-range reads and targeted edits; the model can read other tracked files through its tools. The
-workflow uses the latest default-branch revision, so an old report may already be
-fixed. Read contribution policies before submitting AI-generated work upstream.
-
-## Prepare the isolated test runner
-
-Real repository tests never execute on the host. Install/start Docker and ensure
-`docker info` works as your normal user. Build the default runner once:
+or enable automatic dependency preparation on an isolated Docker worker:
 
 ```sh
-docker build -t safefix-runner:local runner
+export SAFEFIX_AUTO_PREPARE=1
+python -m safefix.app
 ```
 
-This image includes Python 3.12 and pytest only. Project-specific runtime/test
-libraries must be installed in a **derived runner image** before starting jobs.
-For example, use a Dockerfile outside the checkout:
+Open the local UI on port 8501 and leave the terminal running. Docker must be
+installed and accessible through `/var/run/docker.sock`. First-time native builds
+can take several minutes. The app streams build output before making model calls.
+The current HTTP server is a local prototype, not a hardened public service.
 
-```dockerfile
-FROM safefix-runner:local
-RUN pip install "sympy==1.14.0"
-```
+## Production provider
 
-Build that file as `safefix-sympy:local`, then set
-`SAFEFIX_RUNNER_IMAGE=safefix-sympy:local` before starting the app. Use dependencies
-appropriate to the target revision; complex pandas/scikit-learn builds need their
-own prepared environments. The app never automatically runs repository install
-scripts or Dockerfiles. Missing dependencies appear as actual collection/setup
-errors, not model repair failures or successful fixes.
+Nebius Token Factory is the default provider, with configurable 64KB input and
+6,000 output-token budgets. Use actual model IDs from your account catalog:
 
-Jobs use a non-root container, disabled network, read-only source, dropped
-capabilities, no-new-privileges, memory/CPU/process limits and a 90-second test
-limit. No provider keys or host Git credentials are passed into the runner. Do
-not expose this local prototype as a hostile multi-tenant service; containers are
-not a complete security boundary. Git checkouts and model calls run server-side.
+- `TOKEN_FACTORY_API_KEY`: securely injected on the server; never committed.
+- `SAFEFIX_PROVIDER=nebius`
+- `TOKEN_FACTORY_BASE_URL=https://api.tokenfactory.nebius.com/v1`
+- `SAFEFIX_PLANNER_MODEL`: planner model ID.
+- `SAFEFIX_REPAIR_MODEL`: repair model ID.
 
-In this managed cloud environment, build with its combined CA trust secret:
-`docker build --secret id=proxy_ca,src=/etc/ssl/certs/ca-certificates.crt -t safefix-runner:local runner`.
-TLS verification stays enabled. Docker images and dependencies are retained;
-running processes do not survive snapshots.
+Legacy `NEMOTRON_ULTRA_MODEL` / `NEMOTRON_NANO_MODEL` remain supported. Groq is an
+optional test provider with smaller defaults; its limits are not imposed on
+Nebius. `python -m safefix.check_provider` lists models without inference or key
+output. No live Nebius call has been verified here without your credentials.
+`.env.example` documents variables but is not automatically loaded.
 
-## Demo publishing
+## Actual workflow
 
-With an **empty issue URL**, choose one of three bundled demo repos. Tests run in
-local temporary copies. Offline mode applies prepared patches; Live uses models.
-The injection-bait demo's blocked command is an explicitly scripted guardrail
-probe, not evidence of a model following a malicious instruction.
+1. Read the real issue and find/build a repository-specific Docker environment.
+   Metadata detection supports pyproject/setup configuration, requirements,
+   standard test extras/groups, src layouts and compatible Python selection.
+2. Check out the exact revision matching the image's native build artifacts.
+3. The planner lists files, searches source, reads metadata and selects tests.
+   Invalid paths, malformed JSON and invalid regression syntax receive precise
+   correction feedback. Projects without existing tests can use a generated one.
+4. Freeze original tests and the generated regression; reproduce the failure.
+5. The repair model continues discovery, applies targeted multi-file replacements
+   or creates Python source files. Read-only discovery does not consume a tested
+   repair round or rerun pytest unnecessarily.
+6. Rerun the same tests. Only executed, passing selected tests count as verified
+   evidence. This is not proof that the whole repository or issue is fixed.
+7. Inspect the real diff, approve it and download the patch and execution report.
+   **Issue-mode GitHub publication is not implemented.**
 
-After tests pass, review the diff and click **I reviewed & approve this patch**.
-The final **Push to GitHub** button then enables. It confirms the server checkout's
-GitHub origin, verifies destination tests and pushes only the demo's solution.py
-to a new `safefix/...` branch. Main is unchanged. Authentication must be configured
-locally via your normal Git credential manager or SSH. Never put tokens in remote
-URLs. Verified demo run IDs are held in memory (last 50), and expire on restart.
+The UI shows actual issue details, source revision, configured provider/model,
+environment logs, planner corrections, test results, diffs and blocked actions.
+All repository content is treated as untrusted data; no arbitrary model shell
+commands are executed. Tests run in a non-root, network-disabled, resource-limited
+container. The model key is never passed into builds or test containers.
 
-## Validation
+## Repository environments
+
+`python -m safefix.prepare_runner owner/repository` accepts unknown public Python
+repositories. Use `--python 3.13` or `--project-dir packages/my_library` when
+needed. `--ref FULL_SHA` pins a revision. Runtime artifacts merge with the actual
+edited checkout, so tests do not silently run an unmodified installed wheel.
+Custom system dependencies, databases, non-pytest test runners and unusual build
+systems can need a custom runner. Docker is not complete hostile multi-tenant
+isolation; use deliberately isolated workers before public deployment.
+
+The prepared pandas/scikit-learn/SymPy recipes are optional benchmark build
+optimizations, not eligibility checks. `--generic` forces the generic builder.
+[Five real issue evaluations](docs/REAL_ISSUES.md) include reproducible failing
+baselines with zero model calls; those fixtures never drive the live UI/model.
+
+## Offline demos and publishing
+
+An empty issue URL explicitly selects one of three bundled demos. Offline mode
+uses prepared patches, not AI; live demo mode uses the configured provider.
+The bait demo's blocked action is labeled as a scripted guardrail probe.
+
+Verified demo patches require **user patch approval** before the final GitHub push
+button enables. Publishing confirms the origin, rechecks tests and creates a new
+`safefix/...` branch; main is unchanged. Local Git write authentication is needed.
+Run IDs are in-memory and expire on restart. Real-issue publication stays disabled
+so its patch cannot accidentally go to SafeFix's own origin.
+
+## Verification and deployment status
 
 ```sh
 python -m pytest -q
-# Optional integration; requires the built image and working Docker daemon:
-SAFEFIX_DOCKER_TESTS=1 python -m pytest tests/test_issues_docker.py -q
+# Optional; needs corresponding prepared Docker images:
+SAFEFIX_DOCKER_TESTS=1 SAFEFIX_SCIENTIFIC_TESTS=1 python -m pytest -q
 ```
 
-The default suite checks real-issue routing, report parsing, actual source-path
-diffs, frozen regression tests, no demo fallback, non-reproduction outcomes,
-provider diagnostics, demo repairs and reviewed publication to a local bare Git
-remote. Real-issue model responses are simulated in unit tests; this is not a
-claim of live provider validation. The Docker integration executes actual pytest.
+Tests cover real-issue routing, discovery/correction, source safety, bounded
+provider requests, provider profiles, generic metadata, frozen regressions,
+Docker source overlays and reviewed demo publishing to a local bare remote.
+Unit tests simulate model responses; this is not a claim of live inference.
 
-NemoClaw, Nebius deployment, authentication, durable job storage and public-service
-quotas remain future work. GitHub issue-mode publication also remains unimplemented.
-
-
-## pandas, scikit-learn and SymPy with a small API allowance
-
-See [the real-issue testing guide](docs/REAL_ISSUES.md) for exact runner build
-commands, the five zero-model-call regression checks and live Groq settings.
-Scientific runners build native artifacts from the exact source revision and
-pin jobs to that revision. This is required for pandas/scikit-learn; simply
-installing a released wheel in the generic runner does not test edited source.
-
-Model requests now have a hard size budget, bounded history and one smaller
-retry on HTTP 413. Source tools support `search_file`, line-range `read_file` and
-small exact `edit_file` replacements in large files. Optional server settings:
-`SAFEFIX_INPUT_BYTES` (default 8000, range 2000–12000) and
-`SAFEFIX_OUTPUT_TOKENS` (default 1500, range 512–2500). Provider-specific token
-accounting, quotas and repair quality still apply.
+See [Nebius architecture and remaining deployment work](docs/NEBIUS.md).
+NemoClaw, Nebius-hosted API/workers, persistent jobs, public-service controls and
+issue-mode publication are not represented as implemented or deployed.
