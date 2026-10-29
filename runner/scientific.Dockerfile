@@ -20,5 +20,7 @@ RUN --mount=type=secret,id=proxy_ca \
       *) exit 1 ;; \
     esac
 COPY --chmod=644 .safefix-runner-entrypoint.py /opt/safefix-entrypoint.py
+ARG ENV_FINGERPRINT
+LABEL safefix.cache_key=$ENV_FINGERPRINT
 WORKDIR /repo
 ENTRYPOINT ["python", "/opt/safefix-entrypoint.py"]

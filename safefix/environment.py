@@ -21,6 +21,8 @@ def image_name(repository):
 def inspect_project(root,project_dir='.',python=None):
     root=Path(root).resolve();project=(root/project_dir).resolve()
     if not project.is_relative_to(root) or not project.is_dir():raise ValueError('Project directory must be inside the checkout')
+    for name in ('pyproject.toml','setup.cfg','setup.py','requirements.txt','requirements/test.txt','requirements/tests.txt','tests/requirements.txt','requirements-test.txt','test-requirements.txt'):
+        if not (project/name).resolve().is_relative_to(root):raise ValueError('Repository metadata path escapes the checkout')
     data={};pyproject=project/'pyproject.toml'
     if pyproject.is_file():
         if pyproject.stat().st_size>1000000:raise ValueError('Project metadata exceeds limit')
@@ -40,6 +42,7 @@ def inspect_project(root,project_dir='.',python=None):
     if not compatible:raise ValueError(f'No supported Python runtime satisfies {requires!r}; supported versions: '+', '.join(VERSIONS))
     packages=[]
     for base in (project,project/'src',project/'python'):
+        if not base.resolve().is_relative_to(root):raise ValueError('Package source directory escapes checkout')
         if not base.is_dir():continue
         for child in sorted(base.iterdir()):
             if child.is_dir() and not child.is_symlink() and not child.name.startswith('.') and child.name not in ('tests','test','docs','doc','examples','build_tools','maint_tools','benchmarks','runner','evaluations'):
@@ -67,7 +70,8 @@ def inspect_project(root,project_dir='.',python=None):
         target=next((g for g in ('test','tests','testing') if g in groups),None)
         if target:test_dependencies=group(target)
     backend=data.get('build-system',{}).get('build-backend','')
-    return {'project_dir':project.relative_to(root).as_posix(),'python':compatible[0],
+    native=backend=='mesonpy' or any(p.suffix in ('.pyx','.pxd','.c','.cpp','.f','.f90','.rs') for p in project.rglob('*') if '.git' not in p.parts and not p.is_symlink())
+    return {'needs_native':native,'project_dir':project.relative_to(root).as_posix(),'python':compatible[0],
             'requires_python':requires,'name':declared.get('name') or cfg.get('metadata','name',fallback=project.name),
             'backend':backend,'packaged':bool(declared or data.get('build-system') or data.get('tool',{}).get('poetry') or any((project/p).is_file() for p in ('setup.py','setup.cfg'))),
             'packages':sorted(set(packages)),'test_extra':extra,'requirements':requirements,'test_dependencies':test_dependencies,

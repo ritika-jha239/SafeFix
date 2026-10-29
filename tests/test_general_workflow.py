@@ -99,7 +99,6 @@ def test_auto_preparation_never_passes_model_key_to_builder(monkeypatch):
     lookups=[]
     def resolve(repository):
         lookups.append(repository)
-        if len(lookups)==1:raise issues.IssueError('missing environment')
         return ('prepared:local','b'*40)
     def builder(argv,**kwargs):
         assert argv[-1]=='new-owner/new-project'

@@ -52,6 +52,10 @@ def configure_flow(repository,monkeypatch, baseline):
         if args==('ls-files',):return 'maths.py\ntest_maths.py'
         return 'abc123'
     monkeypatch.setattr(issues,'git',clone)
+    def cached(repository,target,ref=None):
+        clone(target.parent,'clone',str(target))
+        return {'commit':'abc123','cache_hit':True}
+    monkeypatch.setattr(issues,'checkout_source',cached)
     def model(model,messages,structured=False):
         if 'brief source-grounded analysis' in messages[-1]['content']:
             return json.dumps({'plan':'Fix inclusive sum in maths.py','test_paths':['test_maths.py']})
@@ -125,3 +129,33 @@ def test_http_issue_route_never_calls_demo(monkeypatch):
     assert events[0]['workflow']=='issue'
     assert events[1]['issue']['title']=='Actual issue from GitHub'
     assert 'demo' not in events[0]
+
+
+def test_real_issue_plan_streams_before_build_finishes(repository,monkeypatch):
+    import threading
+    configure_flow(repository,monkeypatch,dict(code=1,output='assert 10 == 15',executed=1,errors=0))
+    release=threading.Event();test_calls=[]
+    original=issues.RepoTools.run_tests
+    def run(tools):
+        test_calls.append(1)
+        assert release.is_set(),'Tests ran before environment readiness'
+        return original(tools)
+    def building(repository,ref=None,stop=None,existing=None):
+        yield {'kind':'environment_log','message':'real dependency preparation in progress'}
+        assert release.wait(3),'Planning did not overlap environment preparation'
+        return ('prepared:local',ref)
+    monkeypatch.setattr(issues.RepoTools,'run_tests',run)
+    monkeypatch.setattr(issues,'prepare_environment',building)
+    job=issues.repair_issue('https://github.com/example/maths/issues/42')
+    seen=[]
+    try:
+        for event in job:
+            seen.append(event)
+            if event['kind']=='plan':
+                assert not test_calls
+                assert not release.is_set()
+                release.set()
+        assert seen[-1]['success']
+        assert test_calls
+    finally:
+        release.set();job.close()

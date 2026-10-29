@@ -123,3 +123,12 @@ Unit tests simulate model responses; this is not a claim of live inference.
 See [Nebius architecture and remaining deployment work](docs/NEBIUS.md).
 NemoClaw, Nebius-hosted API/workers, persistent jobs, public-service controls and
 issue-mode publication are not represented as implemented or deployed.
+
+## Faster repeated jobs
+
+[Cache and parallel preparation guide](docs/PERFORMANCE.md): repository objects,
+revision source indexes and exact environments are cached. Planning runs alongside
+dependency preparation and streams immediately; verification waits for matching
+source/environment readiness. The first native build still takes time. Set
+`SAFEFIX_AUTO_PREPARE=1` for automatic preparation and `SAFEFIX_CACHE_DIR` to a
+persistent worker directory. Cache-hit and phase status are visible in the UI.
