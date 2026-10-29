@@ -88,6 +88,8 @@ def repair(demo, mode='offline'):
             history.append({'role':'user','content':json.dumps({'feedback':feedback,'tests':result})})
             if result['code'] == 0:
                 diff = ''.join(difflib.unified_diff(original.splitlines(True), tools.read_file('solution.py').splitlines(True), fromfile='before/solution.py', tofile='after/solution.py'))
-                yield {'kind':'done','success':True,'diff':diff,'blocked':tools.blocked}
+                from .publish import retain
+                job_id = retain(demo, original, tools.read_file('solution.py'))
+                yield {'kind':'done','success':True,'diff':diff,'blocked':tools.blocked,'job_id':job_id}
                 return
         yield {'kind':'done','success':False,'message':'Five-attempt limit reached','blocked':tools.blocked}

@@ -63,7 +63,7 @@ But Python code executed by pytest can access the host filesystem and network;
 these guardrails are not OS isolation. Do not upload or run untrusted repos.
 The web server binds loopback and is not a production deployment.
 
-NemoClaw integration, repo upload, GitHub/PR creation, legacy migration,
+NemoClaw integration, repo upload, automatic PR creation, legacy migration,
 OS isolation, and Nebius deployment are not implemented. No claims of those
 integrations are made. Add actual isolation, authentication, rate limits and
 resource controls before exposing jobs to other users. The Python-only scope
@@ -82,7 +82,31 @@ The dashboard accepts an optional GitHub issue URL as a **context label**.
 It does not fetch that issue or repair its repository. Select one of the three
 bundled repos to execute a real local test-and-repair demo. Progress follows
 streamed backend events: reproduce failure, plan, edit the temporary copy,
-verify pytest, and generate the patch. GitHub writeback stays explicitly marked
-not connected. Download the patch and JSON execution report after a completed
+verify pytest, and generate the patch. After verification, Push verified fix can publish a new branch to the server
+checkout’s GitHub origin. It never changes main. Download the patch and JSON execution report after a completed
 run. The UI includes elapsed time, attempt count, test transition and blocked
 actions. Provider endpoints can be configured later using the live-mode settings.
+
+
+## Push a verified fix to GitHub
+
+1. Run a repair and wait for the tests to pass.
+2. Click **Push verified fix** and confirm the displayed destination.
+3. SafeFix fetches origin/main into a separate temporary checkout, confirms the
+   source still matches, applies only the retained solution.py, and reruns tests.
+4. On success it commits and pushes a new `safefix/...` branch, then displays a
+   GitHub comparison link where you can open a PR. Main is unchanged.
+
+The destination is this server checkout's `origin`, not the issue URL. For the
+bundled demos the file is `repos/<selected-demo>/solution.py`. No arbitrary issue
+repository is fetched or edited. Run IDs and retained patches are held in memory
+(last 50 runs); restart or expiry requires a new repair. Repeated pushes of the
+same successful run return the original branch.
+
+On your Ubuntu laptop, authenticate Git for write access before launching the
+app. Use your normal GitHub credential manager or SSH setup; `origin` must be a
+credential-free HTTPS GitHub URL or `git@github.com:owner/repo.git`. If GitHub CLI
+is installed, `gh auth login` followed by `gh auth setup-git` configures HTTPS
+Git authentication. Do not put tokens in remote URLs, browser fields or source.
+A read-only clone does not prove push permission. Push failures show a safe
+error, leave main unchanged and allow retry after fixing authentication.
