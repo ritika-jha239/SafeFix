@@ -18,7 +18,7 @@ def retain(demo, original, content):
         raise ValueError('Unknown demo')
     job_id = uuid.uuid4().hex
     with LOCK:
-        JOBS[job_id] = dict(demo=demo, original=original, content=content, published=None, busy=False)
+        JOBS[job_id] = dict(demo=demo, original=original, content=content, published=None, busy=False, reviewed=False)
         while len(JOBS) > 50:
             JOBS.popitem(last=False)
     return job_id
@@ -42,11 +42,22 @@ def destination():
         raise ValueError('Publishing requires an origin on github.com without credentials in its URL.')
     return remote, f'https://github.com/{match[1]}/{match[2]}'
 
+def approve(job_id):
+    with LOCK:
+        job = JOBS.get(job_id)
+        if job is None:
+            raise ValueError('Verified run expired. Run the repair again before reviewing.')
+        job['reviewed'] = True
+    return {'success': True, 'reviewed': True}
+
+
 def publish(job_id):
     with LOCK:
         job = JOBS.get(job_id)
         if job is None:
             raise ValueError('Verified run expired. Run the repair again before publishing.')
+        if not job['reviewed']:
+            raise ValueError('Review and approve this patch before pushing to GitHub.')
         if job['published']:
             return job['published']
         if job['busy']:

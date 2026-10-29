@@ -91,10 +91,12 @@ actions. Provider endpoints can be configured later using the live-mode settings
 ## Push a verified fix to GitHub
 
 1. Run a repair and wait for the tests to pass.
-2. Click **Push verified fix** and confirm the displayed destination.
-3. SafeFix fetches origin/main into a separate temporary checkout, confirms the
+2. Inspect the diff and click **I reviewed & approve this patch**. This marks
+   patch review done and enables **Push to GitHub** in the final timeline step.
+3. Click **Push to GitHub** and confirm the displayed destination.
+4. SafeFix fetches origin/main into a separate temporary checkout, confirms the
    source still matches, applies only the retained solution.py, and reruns tests.
-4. On success it commits and pushes a new `safefix/...` branch, then displays a
+5. On success it commits and pushes a new `safefix/...` branch, then displays a
    GitHub comparison link where you can open a PR. Main is unchanged.
 
 The destination is this server checkout's `origin`, not the issue URL. For the
@@ -110,3 +112,7 @@ is installed, `gh auth login` followed by `gh auth setup-git` configures HTTPS
 Git authentication. Do not put tokens in remote URLs, browser fields or source.
 A read-only clone does not prove push permission. Push failures show a safe
 error, leave main unchanged and allow retry after fixing authentication.
+
+Patch approval is recorded server-side for the exact verified run. Publishing
+without approval is rejected. Every new repair requires a fresh review. The
+GitHub step is marked done only after the push succeeds.

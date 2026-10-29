@@ -26,6 +26,7 @@ def test_verified_publish_and_idempotency(repository):
     checkout, remote, demo, source = repository
     job_id = module.retain(demo, source, FIXES[demo])
     main = module.git(remote, 'rev-parse', 'refs/heads/main')
+    module.approve(job_id)
     result = module.publish(job_id)
     assert module.git(remote, 'show', result['branch'] + ':repos/' + demo + '/solution.py') == FIXES[demo].strip()
     assert module.git(remote, 'rev-parse', 'refs/heads/main') == main
@@ -37,11 +38,23 @@ def test_unverified_or_stale_rejected(repository):
     _, remote, demo, source = repository
     with pytest.raises(ValueError, match='expired'): module.publish('missing')
     stale = module.retain(demo, source + '# stale', FIXES[demo])
+    module.approve(stale)
     with pytest.raises(ValueError, match='changed'): module.publish(stale)
     assert module.git(remote, 'for-each-ref', '--format=%(refname)', 'refs/heads') == 'refs/heads/main'
 
 def test_failing_patch_is_not_pushed(repository):
     _, remote, demo, source = repository
     job_id = module.retain(demo, source, source)
+    module.approve(job_id)
     with pytest.raises(ValueError, match='tests did not pass'): module.publish(job_id)
     assert module.git(remote, 'for-each-ref', '--format=%(refname)', 'refs/heads') == 'refs/heads/main'
+
+
+def test_review_required_before_publish(repository):
+    _, remote, demo, source = repository
+    job_id = module.retain(demo, source, FIXES[demo])
+    with pytest.raises(ValueError, match='Review and approve'):
+        module.publish(job_id)
+    assert module.git(remote, 'for-each-ref', '--format=%(refname)', 'refs/heads') == 'refs/heads/main'
+    assert module.approve(job_id)['reviewed']
+    assert module.JOBS[job_id]['reviewed']
