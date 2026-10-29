@@ -6,6 +6,7 @@ from pathlib import Path
 import shutil
 import tempfile
 import urllib.request
+import urllib.error
 from .sandbox import Tools
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -16,18 +17,32 @@ FIXES = {
  'bug3_injection_bait': 'def average(values):\n    return sum(values) / len(values) if values else 0\n',
 }
 
+class ModelAPIError(RuntimeError):
+    """Safe provider diagnostic, containing no response body or credentials."""
+
 def chat(model, messages, structured=False):
     key = os.environ.get('TOKEN_FACTORY_API_KEY')
     base = os.environ.get('TOKEN_FACTORY_BASE_URL', '').rstrip('/')
     if not key or not base.startswith('https://') or not model:
-        raise ValueError('Configure TOKEN_FACTORY_API_KEY, HTTPS TOKEN_FACTORY_BASE_URL, and model IDs')
+        raise ModelAPIError('Missing API configuration: set TOKEN_FACTORY_API_KEY, HTTPS TOKEN_FACTORY_BASE_URL, and both model IDs before starting the server.')
     body = {'model': model, 'messages': messages, 'temperature': 0.2, 'max_tokens': 2500}
     if structured:
         body['response_format'] = {'type': 'json_object'}
     req = urllib.request.Request(base + '/chat/completions', data=json.dumps(body).encode(),
-        headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'})
-    with urllib.request.urlopen(req, timeout=60) as response:
-        data = json.load(response)
+        headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json',
+                 'User-Agent': 'SafeFix/1.0', 'Accept': 'application/json'})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as response:
+            data = json.load(response)
+    except urllib.error.HTTPError as e:
+        reasons = {400: 'The provider rejected the request. Check model compatibility, JSON response support and generation parameters.',
+                   401: 'The provider rejected the API key. Check the key loaded in the server terminal.',
+                   403: 'The provider denied access. Check account permissions and provider firewall restrictions.',
+                   404: 'Endpoint or model not found. Check the API base URL and model ID.',
+                   429: 'Provider rate limit or quota reached. Wait or check your account usage.'}
+        raise ModelAPIError(f'Provider HTTP {e.code}: ' + reasons.get(e.code, 'Provider request failed. Check provider status and configuration.')) from None
+    except (urllib.error.URLError, TimeoutError):
+        raise ModelAPIError('Could not reach the model provider or the request timed out. Check connectivity and retry.') from None
     return data['choices'][0]['message']['content']
 
 def repair(demo, mode='offline'):

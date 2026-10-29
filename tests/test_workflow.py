@@ -49,3 +49,33 @@ def test_issue_context(url):
 def test_issue_context_rejected(url):
     from safefix.app import validate_issue
     with pytest.raises(ValueError): validate_issue(url)
+
+def test_provider_headers_and_json_request(monkeypatch):
+    import io, json
+    from safefix import agent
+    monkeypatch.setenv('TOKEN_FACTORY_API_KEY','test-secret-not-real')
+    monkeypatch.setenv('TOKEN_FACTORY_BASE_URL','https://provider.example/v1')
+    def respond(req, timeout):
+        headers = {k.lower():v for k,v in req.header_items()}
+        assert headers['user-agent'] == 'SafeFix/1.0'
+        assert headers['accept'] == 'application/json'
+        assert headers['authorization'] == 'Bearer test-secret-not-real'
+        assert req.full_url == 'https://provider.example/v1/chat/completions'
+        assert json.loads(req.data)['response_format'] == {'type':'json_object'}
+        return io.BytesIO(b'{"choices":[{"message":{"content":"ok"}}]}')
+    monkeypatch.setattr(agent.urllib.request,'urlopen',respond)
+    assert agent.chat('test-model',[],True) == 'ok'
+
+@pytest.mark.parametrize('status', [400,401,403,404,429,500])
+def test_provider_error_does_not_leak_credentials(monkeypatch,status):
+    import io, urllib.error
+    from safefix import agent
+    monkeypatch.setenv('TOKEN_FACTORY_API_KEY','test-secret-not-real')
+    monkeypatch.setenv('TOKEN_FACTORY_BASE_URL','https://provider.example/v1')
+    def fail(*args,**kwargs):
+        raise urllib.error.HTTPError('https://provider.example',status,'test-secret-not-real',{},io.BytesIO(b'test-secret-not-real'))
+    monkeypatch.setattr(agent.urllib.request,'urlopen',fail)
+    with pytest.raises(agent.ModelAPIError) as caught:
+        agent.chat('test-model',[])
+    assert str(status) in str(caught.value)
+    assert 'test-secret-not-real' not in str(caught.value)

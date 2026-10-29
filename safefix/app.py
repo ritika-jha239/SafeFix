@@ -1,7 +1,7 @@
 """Loopback-only UI for trusted bundled demo repositories."""
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
-from .agent import DEMOS, repair
+from .agent import DEMOS, repair, ModelAPIError
 
 from pathlib import Path
 import re
@@ -74,6 +74,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write((json.dumps(event)+'\n').encode()); self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError):
             pass
+        except ModelAPIError as e:
+            self.wfile.write((json.dumps({'kind':'error','message':str(e)})+'\n').encode())
         except Exception:
             self.wfile.write((json.dumps({'kind':'error','message':'Repair failed. Check API configuration and provider access; credentials are never logged.'})+'\n').encode())
 
