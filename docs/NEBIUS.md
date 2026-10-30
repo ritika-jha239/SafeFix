@@ -40,6 +40,15 @@ existing Groq base URL. Only that test profile defaults to 8KB / 1,500 tokens.
 An explicit provider conflicting with another known provider's URL is rejected.
 Changing keys alone does not switch endpoint, models or account permissions.
 
+If a provider specifically rejects JSON response mode or reports
+`json_validate_failed`, SafeFix retries once without provider-enforced JSON mode.
+It still requests JSON text, parses it and validates the plan/tool actions before
+using them. This compatibility retry does not switch models or providers.
+Unrelated HTTP 400 errors, authentication failures and quota errors do not trigger
+this retry. Errors show only recognized error codes/parameter names; raw provider
+messages and failed generations are never logged. A successful `/models` listing
+or small chat request does not guarantee a repository-planning request will work.
+
 ## Any public Python repository, not a benchmark allowlist
 
 Prepare a repository by its identity:

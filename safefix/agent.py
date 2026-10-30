@@ -22,6 +22,33 @@ FIXES = {
 class ModelAPIError(RuntimeError):
     """Safe provider diagnostic, containing no response body or credentials."""
 
+def provider_error(error):
+    """Classify bounded error JSON; never echo provider text or failed generations."""
+    try:
+        value=json.loads(error.read(65536)).get('error',{})
+    except (ValueError, UnicodeError, AttributeError, OSError):
+        return '', '', False
+    if not isinstance(value,dict):return '', '', False
+    code=value.get('code')
+    known_codes=('json_validate_failed','unsupported_parameter','unsupported_value',
+        'invalid_value','invalid_request_error','context_length_exceeded',
+        'model_not_found','model_decommissioned','rate_limit_exceeded',
+        'invalid_api_key','content_policy_violation')
+    code=code if isinstance(code,str) and code in known_codes else ''
+    param=value.get('param')
+    param=param if isinstance(param,str) and param in (
+        'response_format','response_format.type','temperature','max_tokens',
+        'max_completion_tokens','model','messages') else ''
+    # Messages are used only for classification, never included in a log/error.
+    message=value.get('message','')
+    message=message.lower() if isinstance(message,str) else ''
+    json_rejected=(code=='json_validate_failed' or 'failed to generate json' in message or
+        ('response_format' in message and any(word in message for word in
+            ('not supported','unsupported','not available'))))
+    if param.startswith('response_format') and code in ('unsupported_parameter','unsupported_value'):
+        json_rejected=True
+    return code,param,json_rejected
+
 def chat(model, messages, structured=False):
     key = os.environ.get('TOKEN_FACTORY_API_KEY')
     try: profile=settings()
@@ -31,18 +58,32 @@ def chat(model, messages, structured=False):
         raise ModelAPIError('Missing API configuration: set TOKEN_FACTORY_API_KEY, HTTPS TOKEN_FACTORY_BASE_URL, and both model IDs before starting the server.')
     budget=limit('SAFEFIX_INPUT_BYTES',profile['input_bytes'],2000,262144)
     output_tokens=limit('SAFEFIX_OUTPUT_TOKENS',profile['output_tokens'],512,16384)
-    for attempt in range(2):
+    reduced=False
+    prompt_json=False
+    # At most one size retry and one JSON compatibility retry, in either order.
+    for attempt in range(3):
+        current=messages
+        if prompt_json:
+            current=messages+[{'role':'user','content':
+                'Return exactly one valid JSON object for the requested actions or plan. '
+                'No Markdown fences, reasoning or commentary outside the JSON object.'}]
         req = urllib.request.Request(base + '/chat/completions',
-            data=request_body(model,messages,structured,budget,output_tokens),
+            data=request_body(model,current,structured and not prompt_json,budget,output_tokens),
             headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json',
                      'User-Agent': 'SafeFix/1.0', 'Accept': 'application/json'})
         try:
             with urllib.request.urlopen(req, timeout=60) as response:
                 data = json.load(response)
         except urllib.error.HTTPError as e:
-            if e.code==413 and attempt==0:
+            code,param,json_rejected=provider_error(e)
+            if e.code==413 and not reduced:
                 budget=max(1000,budget//2)
                 output_tokens=max(512,output_tokens//2)
+                reduced=True
+                continue
+            if e.code==400 and structured and not prompt_json and json_rejected:
+                # The caller still parses/validates JSON and validates all tool actions.
+                prompt_json=True
                 continue
             reasons = {400: 'The provider rejected the request. Check model compatibility, JSON response support and generation parameters.',
                        401: 'The provider rejected the API key. Check the key loaded in the server terminal.',
@@ -50,7 +91,17 @@ def chat(model, messages, structured=False):
                        404: 'Endpoint or model not found. Check the API base URL and model ID.',
                        413: 'Provider request/token allowance exceeded even after reducing context. Set SAFEFIX_INPUT_BYTES=3000 and SAFEFIX_OUTPUT_TOKENS=512, or select a model with a higher allowance.',
                        429: 'Provider rate limit or quota reached. Wait or check your account usage.'}
-            raise ModelAPIError(f'Provider HTTP {e.code}: ' + reasons.get(e.code, 'Provider request failed. Check provider status and configuration.')) from None
+            diagnostic=''
+            if code:diagnostic+=' code='+code
+            if param:diagnostic+=' parameter='+param
+            if code=='context_length_exceeded':
+                diagnostic+=' Reduce SAFEFIX_INPUT_BYTES and/or SAFEFIX_OUTPUT_TOKENS.'
+            if code in ('model_not_found','model_decommissioned'):
+                diagnostic+=' Select a currently available text-generation model from this provider.'
+            if param in ('temperature','max_tokens','max_completion_tokens'):
+                diagnostic+=' This model rejects a generation parameter used by SafeFix.'
+            if prompt_json:diagnostic+=' A retry without provider-enforced JSON mode was attempted.'
+            raise ModelAPIError(f'Provider HTTP {e.code}: ' + reasons.get(e.code, 'Provider request failed. Check provider status and configuration.')+diagnostic) from None
         except (urllib.error.URLError, TimeoutError):
             raise ModelAPIError('Could not reach the model provider or the request timed out. Check connectivity and retry.') from None
         try:
